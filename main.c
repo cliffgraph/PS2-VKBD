@@ -63,6 +63,9 @@ void main(void)
     SYSTEM_Initialize();
     APP_SYSTEM_Initialize(APP_SYSTEM_STATE_USB_START);
     USBDeviceInit();
+#if defined(USB_POLLING)
+	//INTERRUPT_GlobalInterruptEnable();	// USB_INTERRUPTのときはUSBDeviceInit()内で行われる。
+#endif
     USBDeviceAttach();
 	APP_Initialize();
     while(1)
