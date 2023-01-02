@@ -22,10 +22,6 @@
          <string>class com.microchip.mcc.mcu8.systemManager.SystemManager</string>
       </entry>
       <entry>
-         <string>TMR0</string>
-         <string>class com.microchip.mcc.mcu8.modules.tmr0_v1.TMR0</string>
-      </entry>
-      <entry>
          <string>WDT</string>
          <string>class com.microchip.mcc.mcu8.systemManager.wdt.WDT</string>
       </entry>
@@ -2217,20 +2213,12 @@
    </tokenMap>
    <generatedFileHashHistoryMap class="java.util.HashMap">
       <entry>
-         <file>mcc_generated_files\interrupt_manager.h</file>
-         <hash>66a8884e0e3f473f0d681e63162fb844b5c98cfcfa9ad6a34a726a0ef4ad3c9a</hash>
-      </entry>
-      <entry>
          <file>mcc_generated_files\mcc.h</file>
          <hash>99c559031fd44ae0a2ac0aa1feda5dbcf5f3f4f9ee0bc83ecde5bbb8d7470696</hash>
       </entry>
       <entry>
          <file>mcc_generated_files\device_config.h</file>
          <hash>0742c66df6a797ffdc0e174a96b7497e00403ca86764a87829a02bb14a77695c</hash>
-      </entry>
-      <entry>
-         <file>mcc_generated_files\tmr0.h</file>
-         <hash>37a33b5a45800d464d60c84e4bb8ae83883b78ebf6d01508a65bf90a93d64b75</hash>
       </entry>
       <entry>
          <file>main.c</file>
@@ -2245,16 +2233,8 @@
          <hash>a2ef3796a640f7e5165e25979749ade645dbcd6786f1b467a1754437dd56d133</hash>
       </entry>
       <entry>
-         <file>mcc_generated_files\interrupt_manager.c</file>
-         <hash>4c11edcb8e7ed3281878cee286d0a99708834f89c294a5de225a06c951c74a4c</hash>
-      </entry>
-      <entry>
          <file>mcc_generated_files\mcc.c</file>
          <hash>60887949ad405ace48e173c3a16dcbda273ab6fd56ca569ae5d3810c0e79a9b9</hash>
-      </entry>
-      <entry>
-         <file>mcc_generated_files\tmr0.c</file>
-         <hash>6639debc19c90826b67613529f6e582bb9430e4cb7f588f77d9b6200d4d13b3c</hash>
       </entry>
       <entry>
          <file>mcc_generated_files\pin_manager.c</file>

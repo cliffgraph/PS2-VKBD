@@ -71,10 +71,6 @@ inline void DAT_OUT(int t)
 
 static bool outputClock(void)
 {
-//   if( CLK_IN() == IN_L ){
-// 	CLK_OUT(OUT_H);
-// 	return false;
-//   }
   CLK_OUT(OUT_L);
   __delay_us(35);
   CLK_OUT(OUT_H);
@@ -82,22 +78,19 @@ static bool outputClock(void)
   return true;
 }
 
+// @return false 送信禁止だった
 static bool outputBit(const int dt)
 {
-//   if( CLK_IN() == IN_L ){
-// 	CLK_OUT(OUT_H);
-// 	return false;
-//   }
-  DAT_OUT(dt);
-  __delay_us(5);
-  CLK_OUT(OUT_L);
-  __delay_us(35);
-  CLK_OUT(OUT_H);
-  __delay_us(35);
-  return true;
+	DAT_OUT(dt);
+	__delay_us(5);
+	CLK_OUT(OUT_L);
+	__delay_us(35);
+	CLK_OUT(OUT_H);
+	__delay_us(35);
+	return true;
 }
 
-static bool recvDatOS2(uint8_t *pData)
+static bool recvDataFromPS2(uint8_t *pData)
 {
 	if( !outputClock() )
 		return false;
@@ -138,7 +131,7 @@ static bool recvDatOS2(uint8_t *pData)
 	return true;
 }
 
-static bool sendDatOS2(uint8_t dt)
+static bool sendDataToPS2(uint8_t dt)
 {
 	// スタートビットを出力する
 	if( !outputBit(OUT_L) )
@@ -160,6 +153,7 @@ static bool sendDatOS2(uint8_t dt)
 	if( !outputBit(OUT_H) )
 		return false;
 	__delay_us(20);
+
   return true;
 }
 
@@ -210,19 +204,7 @@ bool t_DelBtmBuff(struct RINGBUFF *p)
 	return true;
 }
 
-void MyTMR0Handler(void)
-{
-	return;
-}
-
-bool check_ReadyUSB()
-{
-	if (USBGetDeviceState() < CONFIGURED_STATE || USBIsDeviceSuspended() == true)
-		return false;
-	return true;
-}
-
-void task_USB()
+static void taskUSB()
 {
 	// USBからの受信
 	bool bReqInfo = false;
@@ -258,21 +240,6 @@ void task_USB()
 		static uint8_t mess[] = "\x9PS2USB:00";
 		mess[9] = '0' + ps2powsts;
 		putUSBUSART(mess, sizeof(mess)-1);		// -1 は文字列終端の分
-	}
-	return;
-}
-
-void task_SendPS2()
-{
-	// PS/2への送信
-	uint8_t dt;
-	if( t_PopBuff(&g_Buff, &dt) ) {
-		if (g_WaitCnt100usTarget <= g_WaitCnt100us && CLK_IN() == IN_H && DAT_IN() == IN_H ){
-			if( sendDatOS2(dt) ){
-				t_DelBtmBuff(&g_Buff);
-				g_WaitCnt100us = 0;
-			}
-		}
 	}
 	return;
 }
@@ -346,27 +313,41 @@ void tasksub_ReceiveData(const uint8_t data, bool *pbWaitLed, enum PS2CMD *pLast
 	return;
 }
 
-// ホストはデータを送信したい場合、
-// 	 CLK=L(100us)して、CLK=Hにする。
-// デバイスは
-//		はじめアイドル状態とする。
-//			ST-IDOL、CLK-H、DAT-H, 
-//		ST=IDOLのとき、
-//	 		CLK=Lを検出したら、受信待機になる
-//				ST-STANBY_RX
-//			送信データがあれば、
-//				sendDatOS2()を行う。
-//				ただし、CLK-Hの後に、CLKを調べてCLK=Hなら、ホストの送信要求だと判断し送信を停止する。受信待機する。
-///					ST-STANBY_RX
+// ホスト側はデータを送信したい場合、
+//		CLKをHのままCLKをLにする（OCM version 3.8.2）
+//		もしくは、 CLKをLしてCLKをLにする（OCM version 3.9.0、3.9.1）
+// 予備知識：
+//		PS/2 インターフェースは、ホスト(SX-2)とデバイス側(PS2VKBD)とは、CLK、DATの２本のラインで
+//		双方向通信を行う。同じラインに対して両社が出力を行うため、出力を行いつつ、同じラインがどの
+//		ような状態になっているかのチェックを行う、これの前提を理解しておくこと。
+//		オープンコレクタによって出力を行っているので、両者の出力の論理積がラインの本当の状態になる。
+//		例えば、両者がHを出力するとラインはHの状態になるが、片方がLを出力にするとラインはLになる。
+//		デバイス側がHを出力してもホスト側がKを出力すれば、ラインはLの状態になる（デバイスがラインの
+//		状態をチェックするとLが入力される）。逆も同じ。
+// デバイス側は
+//		はじめはCLK=H、DAT=Hとし状態遷移もアイドル状態（RXST_IDOL）とする
+//		RXST_IDOLのとき、
+//			DAT=Lを検出したら、RXST_STANBYRX状態に遷移する
+//				これはSX-2側が何かを送信したいというサインなので、その準備を行うということ。
+//				OCM-PLDのverによって送信したいサインは異なるが、DAT=Lは同じ
+//					SX-2 OCM-PLD ver 3.8.2 では、CLK=H、DAT=L
+//					SX-2 OCM-PLD ver 3.9.0、3.9.1 では、CLK=L、DAT=L
+//			DAT=HかつCLK=Hで、SX-2へ送信したいデータがあれば（CLK=Hはホスト側がデバイス側に対して送信を許可しているということ）
+//				送信処理を開始する。
 //		ST=STANBY_RXのとき、
-//	 		CLK=Hを検出したら、受信状態にする
-//				ST-RX
-//		ST=RXのとき、
-//			recvDatOS2()を実行
+//			CLK=Lの場合、CLK=Hになるまで待機する（15ms以上経過してもCLK=Hの場合、いったんIDOL状態へ戻す）
+//	 		CLK=Hだったら、RXST_RX(受信状態)に遷移する
+//		RXST_RXのとき、
+//			１バイト分の受信処理を行って、IDOL状態へ戻す
 //	
-// キーコードの多バイと送信中に送信禁止にされたら、最初から送信しなおす。
-
-void task_ReceivePS2()
+// 現バージョン、対応できていない動作：
+//	（１）デバイスから１バイトの送信している最中でもホストからの送信禁止の支持をチェックしなければならないのだろうが、
+//			１バイト分を送信しきるまでチェックをしない。PS2VKBDの回路の設計が悪く、デバイスの出力がラインに範囲されるまで
+//			少し時間がかかるため、CLK=Hを出力した直後にCLK=Hかどうかをチェックしても正確に確認できないため。
+//	（２）複数バイト（ブレークコード等）をホストへ送信している途中に送信禁止になった場合、
+//			最初のバイトから再送しなければならないが、それがまだできていない。
+//
+static void taskReceivePS2()
 {
 	enum PS2_RXST { RXST_IDOL, RXST_STANBYRX, RXST_RX};
 	static enum PS2_RXST sts = RXST_IDOL;
@@ -377,12 +358,21 @@ void task_ReceivePS2()
 		{
 			const uint8_t clk = CLK_IN();
 			const uint8_t dat = DAT_IN();
-			if ( (clk == IN_L && dat == IN_L) || (clk == IN_H && dat == IN_L)) {
+			if (dat == IN_L) {
 				sts = RXST_STANBYRX;
 				g_Wait100us = 0;
 			}
-			else{
-				task_SendPS2();
+			else if(clk == IN_H) {
+				// 送信許可で送信データがある場合は、PS/2への送信を行う
+				uint8_t dt;
+				if (!t_PopBuff(&g_Buff, &dt))
+					break;
+				if (g_WaitCnt100us < g_WaitCnt100usTarget )
+					break;
+				if( sendDataToPS2(dt) ){
+					t_DelBtmBuff(&g_Buff);
+					g_WaitCnt100us = 0;
+				}
 			}
 			break;
 		}
@@ -393,28 +383,25 @@ void task_ReceivePS2()
 				g_Wait100us = 0;
 			}
 			else {
-				if (2000 < ++g_Wait100us){
+				if (150 < ++g_Wait100us){	// 15ms Timeout
 					sts = RXST_IDOL;
-					// TODO: TIMEOUT判定
 				}
 			}
 			break;
 		}
 		case RXST_RX:
 		{
-
   			static enum PS2CMD lastData = PS2CMD_TESTDONE;
 			uint8_t data;
 			if (2000 < ++g_Wait100us){
 				sts = RXST_IDOL;
 			}
-			// スタートビットまで待つ
+			// スタートビットの終わりまで待つ
 			if( DAT_IN() == IN_H )
 				break;
-			if (!recvDatOS2(&data)) {
-				sts = RXST_IDOL;
-			}
-			else {
+			// データビット、パリティの受信を行う。
+			//	成功したら、受信データに応じた処理を行う。
+			if (recvDataFromPS2(&data)) {
 				if (bWaitLed) {
 					bWaitLed = false;
 					t_PushBuff(&g_Buff, lastData = PS2CMD_ACK);
@@ -429,8 +416,8 @@ void task_ReceivePS2()
 				else {
 					tasksub_ReceiveData(data, &bWaitLed, &lastData);
 				}
-				sts = RXST_IDOL;
 			}
+			sts = RXST_IDOL;
 			break;
 		}
 	}
@@ -439,7 +426,7 @@ void task_ReceivePS2()
 
 // タイマー割込みを使用すると 40us などの待ちを待ちを使用するのに__delay_us()を使用したときに、
 // __delay_us()の精度が悪くなるので、タイマー割込みを使用しないようにしている。
-void task_TimeCount()
+static void taskTimeCount()
 {
 	static uint8_t timebase = 0;
 	// メインループ1周は約25usかかるという実測に基づく。よって4下位カウントして100usを作り出す。
@@ -469,9 +456,6 @@ void APP_Initialize()
 {
 	ps2powsts = PS2POW_IN();
 	t_InitBuff(&g_Buff);
-	// TMR0_StopTimer();
-	// TMR0_SetInterruptHandler(MyTMR0Handler);
-	// TMR0_StartTimer();
 	CLK_OUT(OUT_H);
 	DAT_OUT(OUT_H);
 	return;
@@ -493,11 +477,11 @@ void APP_Initialize()
 ********************************************************************/
 void APP_Tasks()
 {
-	if (!check_ReadyUSB())
+	if (USBGetDeviceState() < CONFIGURED_STATE || USBIsDeviceSuspended() == true)
 		return;
-	task_ReceivePS2();
-	task_USB();
-	task_TimeCount();
+	taskReceivePS2();
+	taskUSB();
+	taskTimeCount();
 	return;
 }
 
@@ -514,22 +498,4 @@ void APP_SYSTEM_Initialize( APP_SYSTEM_STATE state )
         case APP_SYSTEM_STATE_USB_RESUME:
             break;
     }
-}
-
-#if(__XC8_VERSION < 2000)
-    #define INTERRUPT interrupt
-#else
-    #define INTERRUPT __interrupt()
-#endif
-
-void INTERRUPT SYS_InterruptHigh(void)
-{
-#if defined(USB_INTERRUPT)
-	USBDeviceTasks();
-#endif
-	// TIMER0 Handler
-    if(INTCONbits.TMR0IE == 1 && INTCONbits.TMR0IF == 1) {
-        TMR0_ISR();
-    }
-	return;
 }

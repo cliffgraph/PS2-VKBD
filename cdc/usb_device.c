@@ -2807,7 +2807,7 @@ static void USBStdFeatureReqHandler(void)
         #if (USB_PING_PONG_MODE == USB_PING_PONG__ALL_BUT_EP0) || (USB_PING_PONG_MODE == USB_PING_PONG__FULL_PING_PONG)
             if(current_ep_data.bits.ping_pong_state == 0) //Check if even
             {
-                p = (BDT_ENTRY*)(((uintptr_t)p) & (~USB_NEXT_PING_PONG));
+                p = (BDT_ENTRY*)(((uintptr_t)p) & (~((unsigned int)USB_NEXT_PING_PONG)));
             }
             else //else must have been odd
             {
